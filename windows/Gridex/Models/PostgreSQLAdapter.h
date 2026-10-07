@@ -89,6 +89,9 @@ namespace DBModels
         static std::string quoteIdentifier(const std::wstring& name);
         // Helper: quote literal (single-quotes with escaping)
         static std::string quoteLiteral(const std::wstring& value);
+        // Helper: resolve schema fallback (defaults to public)
+        static std::wstring resolveSchema(const std::wstring& schema);
+        static std::string qualifyTable(const std::wstring& schema, const std::wstring& table);
         // Helper: ensure connected, throw if not
         void ensureConnected() const;
         // Helper: execute a query and return result, throw on error

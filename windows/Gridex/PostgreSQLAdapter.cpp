@@ -51,6 +51,16 @@ namespace DBModels
         return escaped;
     }
 
+    std::wstring PostgreSQLAdapter::resolveSchema(const std::wstring& schema)
+    {
+        return schema.empty() ? L"public" : schema;
+    }
+
+    std::string PostgreSQLAdapter::qualifyTable(const std::wstring& schema, const std::wstring& table)
+    {
+        return quoteIdentifier(resolveSchema(schema)) + "." + quoteIdentifier(table);
+    }
+
     // Public wrappers over the existing utf8 helpers. Return wstring so
     // callers that assemble wide SQL (enterprise row graph) don't have
     // to UTF-8 round-trip themselves.
@@ -241,7 +251,8 @@ namespace DBModels
         int limit, int offset,
         const std::wstring& orderBy, bool ascending)
     {
-        std::string sql = "SELECT * FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(table);
+        std::string targetTable = qualifyTable(schema, table);
+        std::string sql = "SELECT * FROM " + targetTable;
         if (!orderBy.empty())
             sql += " ORDER BY " + quoteIdentifier(orderBy) + (ascending ? " ASC" : " DESC");
         sql += " LIMIT " + std::to_string(limit) + " OFFSET " + std::to_string(offset);
@@ -249,7 +260,7 @@ namespace DBModels
         auto result = executeInternal(sql);
 
         // Get total row count for pagination metadata
-        std::string countSql = "SELECT COUNT(*) FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(table);
+        std::string countSql = "SELECT COUNT(*) FROM " + targetTable;
         auto countResult = executeInternal(countSql);
         if (countResult.success && !countResult.rows.empty())
         {
@@ -295,6 +306,7 @@ namespace DBModels
 
     std::vector<TableInfo> PostgreSQLAdapter::listTables(const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         std::string sql =
             "SELECT c.relname AS name, n.nspname AS schema, "
             "pg_catalog.obj_description(c.oid) AS comment, "
@@ -302,7 +314,7 @@ namespace DBModels
             "pg_total_relation_size(c.oid) AS size_bytes "
             "FROM pg_class c "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE c.relkind = 'r' AND n.nspname = " + quoteLiteral(schema) +
+            "WHERE c.relkind = 'r' AND n.nspname = " + quoteLiteral(targetSchema) +
             " ORDER BY c.relname";
 
         auto result = executeInternal(sql);
@@ -327,12 +339,13 @@ namespace DBModels
 
     std::vector<TableInfo> PostgreSQLAdapter::listViews(const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         std::string sql =
             "SELECT c.relname AS name, n.nspname AS schema, "
             "pg_catalog.obj_description(c.oid) AS comment "
             "FROM pg_class c "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE c.relkind IN ('v','m') AND n.nspname = " + quoteLiteral(schema) +
+            "WHERE c.relkind IN ('v','m') AND n.nspname = " + quoteLiteral(targetSchema) +
             " ORDER BY c.relname";
 
         auto result = executeInternal(sql);
@@ -351,6 +364,7 @@ namespace DBModels
     std::vector<ColumnInfo> PostgreSQLAdapter::describeTable(
         const std::wstring& table, const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         std::string sql =
             "SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, "
             "c.ordinal_position, c.udt_name, c.character_maximum_length, "
@@ -363,10 +377,10 @@ namespace DBModels
             "  JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name "
             "  WHERE tc.constraint_type = 'PRIMARY KEY' "
             "    AND tc.table_name = " + quoteLiteral(table) +
-            "    AND tc.table_schema = " + quoteLiteral(schema) +
+            "    AND tc.table_schema = " + quoteLiteral(targetSchema) +
             ") pk ON pk.column_name = c.column_name "
             "WHERE c.table_name = " + quoteLiteral(table) +
-            " AND c.table_schema = " + quoteLiteral(schema) +
+            " AND c.table_schema = " + quoteLiteral(targetSchema) +
             " ORDER BY c.ordinal_position";
 
         auto result = executeInternal(sql);
@@ -413,7 +427,7 @@ namespace DBModels
         }
 
         // Mark FK columns using listForeignKeys
-        auto fks = listForeignKeys(table, schema);
+        auto fks = listForeignKeys(table, targetSchema);
         for (auto& fk : fks)
         {
             for (auto& col : columns)
@@ -433,6 +447,7 @@ namespace DBModels
     std::vector<IndexInfo> PostgreSQLAdapter::listIndexes(
         const std::wstring& table, const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         std::string sql =
             "SELECT i.relname AS index_name, "
             "am.amname AS algorithm, "
@@ -449,7 +464,7 @@ namespace DBModels
             "JOIN pg_class i ON i.oid = ix.indexrelid "
             "JOIN pg_am am ON am.oid = i.relam "
             "WHERE t.relname = " + quoteLiteral(table) +
-            " AND n.nspname = " + quoteLiteral(schema) +
+            " AND n.nspname = " + quoteLiteral(targetSchema) +
             " ORDER BY i.relname";
 
         auto result = executeInternal(sql);
@@ -470,6 +485,7 @@ namespace DBModels
     std::vector<ForeignKeyInfo> PostgreSQLAdapter::listForeignKeys(
         const std::wstring& table, const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         std::string sql =
             "SELECT conname AS name, "
             "a.attname AS column_name, "
@@ -487,7 +503,7 @@ namespace DBModels
             "JOIN pg_attribute af ON af.attrelid = cf.oid AND af.attnum = ANY(co.confkey) "
             "WHERE co.contype = 'f' "
             "AND c.relname = " + quoteLiteral(table) +
-            " AND n.nspname = " + quoteLiteral(schema) +
+            " AND n.nspname = " + quoteLiteral(targetSchema) +
             " ORDER BY conname";
 
         auto result = executeInternal(sql);
@@ -508,11 +524,12 @@ namespace DBModels
 
     std::vector<std::wstring> PostgreSQLAdapter::listFunctions(const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         std::string sql =
             "SELECT p.proname AS name "
             "FROM pg_proc p "
             "JOIN pg_namespace n ON n.oid = p.pronamespace "
-            "WHERE n.nspname = " + quoteLiteral(schema) +
+            "WHERE n.nspname = " + quoteLiteral(targetSchema) +
             " AND p.prokind = 'f' "
             "ORDER BY p.proname";
 
@@ -529,12 +546,13 @@ namespace DBModels
     std::wstring PostgreSQLAdapter::getFunctionSource(
         const std::wstring& name, const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         std::string sql =
             "SELECT pg_get_functiondef(p.oid) AS source "
             "FROM pg_proc p "
             "JOIN pg_namespace n ON n.oid = p.pronamespace "
             "WHERE p.proname = " + quoteLiteral(name) +
-            " AND n.nspname = " + quoteLiteral(schema) +
+            " AND n.nspname = " + quoteLiteral(targetSchema) +
             " LIMIT 1";
 
         auto result = executeInternal(sql);
@@ -549,11 +567,12 @@ namespace DBModels
     std::wstring PostgreSQLAdapter::getCreateTableSQL(
         const std::wstring& table, const std::wstring& schema)
     {
+        std::wstring targetSchema = resolveSchema(schema);
         // Build DDL from describeTable output — basic columns + NOT NULL + DEFAULT + PK
-        auto columns = describeTable(table, schema);
+        auto columns = describeTable(table, targetSchema);
         if (columns.empty()) return L"";
 
-        std::wstring sql = L"CREATE TABLE \"" + schema + L"\".\"" + table + L"\" (\n";
+        std::wstring sql = L"CREATE TABLE \"" + targetSchema + L"\".\"" + table + L"\" (\n";
         std::vector<std::wstring> pkCols;
         for (size_t i = 0; i < columns.size(); i++)
         {
@@ -587,7 +606,8 @@ namespace DBModels
         const std::wstring& table, const std::wstring& schema,
         const TableRow& values)
     {
-        std::string sql = "INSERT INTO " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " (";
+        std::string targetTable = qualifyTable(schema, table);
+        std::string sql = "INSERT INTO " + targetTable + " (";
         std::string valsSql;
         bool first = true;
         for (auto& [col, val] : values)
@@ -603,7 +623,7 @@ namespace DBModels
         }
         // All columns blank → PostgreSQL's canonical all-defaults form.
         if (first)
-            sql = "INSERT INTO " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " DEFAULT VALUES";
+            sql = "INSERT INTO " + targetTable + " DEFAULT VALUES";
         else
             sql += ") VALUES (" + valsSql + ")";
         return executeInternal(sql);
@@ -613,7 +633,7 @@ namespace DBModels
         const std::wstring& table, const std::wstring& schema,
         const TableRow& setValues, const TableRow& whereValues)
     {
-        std::string sql = "UPDATE " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " SET ";
+        std::string sql = "UPDATE " + qualifyTable(schema, table) + " SET ";
         bool first = true;
         for (auto& [col, val] : setValues)
         {
@@ -640,7 +660,7 @@ namespace DBModels
         const std::wstring& table, const std::wstring& schema,
         const TableRow& whereValues)
     {
-        std::string sql = "DELETE FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " WHERE ";
+        std::string sql = "DELETE FROM " + qualifyTable(schema, table) + " WHERE ";
         bool first = true;
         for (auto& [col, val] : whereValues)
         {

@@ -76,6 +76,8 @@ namespace DBModels
         static std::wstring fromUtf8(const std::string& str);
         static std::string quoteIdentifier(const std::wstring& name);
         static std::string quoteLiteral(const std::wstring& value);
+        std::wstring resolveSchema(const std::wstring& schema);
+        std::string qualifyTable(const std::wstring& schema, const std::wstring& table);
         void ensureConnected() const;
         QueryResult executeInternal(const std::string& sql);
     };

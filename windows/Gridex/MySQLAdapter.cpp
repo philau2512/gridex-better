@@ -49,6 +49,19 @@ namespace DBModels
         return escaped;
     }
 
+    std::wstring MySQLAdapter::resolveSchema(const std::wstring& schema)
+    {
+        if (!schema.empty()) return schema;
+        return currentDatabase();
+    }
+
+    std::string MySQLAdapter::qualifyTable(const std::wstring& schema, const std::wstring& table)
+    {
+        std::wstring s = resolveSchema(schema);
+        if (s.empty()) return quoteIdentifier(table);
+        return quoteIdentifier(s) + "." + quoteIdentifier(table);
+    }
+
     // Public wrappers — wstring in, wstring out. Delegate to utf8 helpers.
     std::wstring MySQLAdapter::quoteSqlLiteral(const std::wstring& value) const
     {
@@ -318,7 +331,8 @@ namespace DBModels
         const std::wstring& orderBy, bool ascending)
     {
         // MySQL uses database name instead of schema
-        std::string sql = "SELECT * FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(table);
+        std::string targetTable = qualifyTable(schema, table);
+        std::string sql = "SELECT * FROM " + targetTable;
         if (!orderBy.empty())
             sql += " ORDER BY " + quoteIdentifier(orderBy) + (ascending ? " ASC" : " DESC");
         sql += " LIMIT " + std::to_string(limit) + " OFFSET " + std::to_string(offset);
@@ -326,8 +340,7 @@ namespace DBModels
         auto result = executeInternal(sql);
 
         // Get total count
-        std::string countSql = "SELECT COUNT(*) AS cnt FROM " +
-            quoteIdentifier(schema) + "." + quoteIdentifier(table);
+        std::string countSql = "SELECT COUNT(*) AS cnt FROM " + targetTable;
         auto countResult = executeInternal(countSql);
         if (countResult.success && !countResult.rows.empty())
         {
@@ -361,10 +374,11 @@ namespace DBModels
 
     std::vector<TableInfo> MySQLAdapter::listTables(const std::wstring& schema)
     {
+        std::wstring targetDb = resolveSchema(schema);
         std::string sql =
             "SELECT TABLE_NAME, TABLE_COMMENT, TABLE_ROWS, DATA_LENGTH + INDEX_LENGTH AS size_bytes "
             "FROM INFORMATION_SCHEMA.TABLES "
-            "WHERE TABLE_SCHEMA = " + quoteLiteral(schema) +
+            "WHERE TABLE_SCHEMA = " + quoteLiteral(targetDb) +
             " AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME";
 
         auto result = executeInternal(sql);
@@ -373,7 +387,7 @@ namespace DBModels
         {
             TableInfo info;
             info.name = row[L"TABLE_NAME"];
-            info.schema = schema;
+            info.schema = targetDb;
             info.type = L"table";
             info.comment = row[L"TABLE_COMMENT"];
             auto estIt = row.find(L"TABLE_ROWS");
@@ -389,9 +403,10 @@ namespace DBModels
 
     std::vector<TableInfo> MySQLAdapter::listViews(const std::wstring& schema)
     {
+        std::wstring targetDb = resolveSchema(schema);
         std::string sql =
             "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS "
-            "WHERE TABLE_SCHEMA = " + quoteLiteral(schema) + " ORDER BY TABLE_NAME";
+            "WHERE TABLE_SCHEMA = " + quoteLiteral(targetDb) + " ORDER BY TABLE_NAME";
 
         auto result = executeInternal(sql);
         std::vector<TableInfo> views;
@@ -399,7 +414,7 @@ namespace DBModels
         {
             TableInfo info;
             info.name = row[L"TABLE_NAME"];
-            info.schema = schema;
+            info.schema = targetDb;
             info.type = L"view";
             views.push_back(info);
         }
@@ -409,11 +424,12 @@ namespace DBModels
     std::vector<ColumnInfo> MySQLAdapter::describeTable(
         const std::wstring& table, const std::wstring& schema)
     {
+        std::wstring targetDb = resolveSchema(schema);
         std::string sql =
             "SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, "
             "COLUMN_KEY, ORDINAL_POSITION, COLUMN_COMMENT "
             "FROM INFORMATION_SCHEMA.COLUMNS "
-            "WHERE TABLE_SCHEMA = " + quoteLiteral(schema) +
+            "WHERE TABLE_SCHEMA = " + quoteLiteral(targetDb) +
             " AND TABLE_NAME = " + quoteLiteral(table) +
             " ORDER BY ORDINAL_POSITION";
 
@@ -435,7 +451,7 @@ namespace DBModels
         }
 
         // Mark FK columns
-        auto fks = listForeignKeys(table, schema);
+        auto fks = listForeignKeys(table, targetDb);
         for (auto& fk : fks)
             for (auto& col : columns)
                 if (col.name == fk.column)
@@ -451,11 +467,12 @@ namespace DBModels
     std::vector<IndexInfo> MySQLAdapter::listIndexes(
         const std::wstring& table, const std::wstring& schema)
     {
+        std::wstring targetDb = resolveSchema(schema);
         std::string sql =
             "SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS columns, "
             "NOT NON_UNIQUE AS is_unique, INDEX_TYPE AS algorithm "
             "FROM INFORMATION_SCHEMA.STATISTICS "
-            "WHERE TABLE_SCHEMA = " + quoteLiteral(schema) +
+            "WHERE TABLE_SCHEMA = " + quoteLiteral(targetDb) +
             " AND TABLE_NAME = " + quoteLiteral(table) +
             " GROUP BY INDEX_NAME, NON_UNIQUE, INDEX_TYPE ORDER BY INDEX_NAME";
 
@@ -477,11 +494,12 @@ namespace DBModels
     std::vector<ForeignKeyInfo> MySQLAdapter::listForeignKeys(
         const std::wstring& table, const std::wstring& schema)
     {
+        std::wstring targetDb = resolveSchema(schema);
         std::string sql =
             "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, "
             "REFERENCED_COLUMN_NAME "
             "FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE "
-            "WHERE TABLE_SCHEMA = " + quoteLiteral(schema) +
+            "WHERE TABLE_SCHEMA = " + quoteLiteral(targetDb) +
             " AND TABLE_NAME = " + quoteLiteral(table) +
             " AND REFERENCED_TABLE_NAME IS NOT NULL ORDER BY CONSTRAINT_NAME";
 
@@ -503,9 +521,10 @@ namespace DBModels
 
     std::vector<std::wstring> MySQLAdapter::listFunctions(const std::wstring& schema)
     {
+        std::wstring targetDb = resolveSchema(schema);
         std::string sql =
             "SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES "
-            "WHERE ROUTINE_SCHEMA = " + quoteLiteral(schema) +
+            "WHERE ROUTINE_SCHEMA = " + quoteLiteral(targetDb) +
             " AND ROUTINE_TYPE = 'FUNCTION' ORDER BY ROUTINE_NAME";
 
         auto result = executeInternal(sql);
@@ -521,7 +540,7 @@ namespace DBModels
     std::wstring MySQLAdapter::getFunctionSource(
         const std::wstring& name, const std::wstring& schema)
     {
-        std::string sql = "SHOW CREATE FUNCTION " + quoteIdentifier(schema) + "." + quoteIdentifier(name);
+        std::string sql = "SHOW CREATE FUNCTION " + qualifyTable(schema, name);
         auto result = executeInternal(sql);
         if (!result.rows.empty())
         {
@@ -534,8 +553,7 @@ namespace DBModels
     std::wstring MySQLAdapter::getCreateTableSQL(
         const std::wstring& table, const std::wstring& schema)
     {
-        std::string sql = "SHOW CREATE TABLE " +
-            quoteIdentifier(schema) + "." + quoteIdentifier(table);
+        std::string sql = "SHOW CREATE TABLE " + qualifyTable(schema, table);
         auto result = executeInternal(sql);
         if (!result.rows.empty())
         {
@@ -550,7 +568,8 @@ namespace DBModels
         const std::wstring& table, const std::wstring& schema,
         const TableRow& values)
     {
-        std::string sql = "INSERT INTO " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " (";
+        std::string targetTable = qualifyTable(schema, table);
+        std::string sql = "INSERT INTO " + targetTable + " (";
         std::string valsSql;
         bool first = true;
         for (auto& [col, val] : values)
@@ -569,7 +588,7 @@ namespace DBModels
         // All columns blank → use MySQL's all-defaults insert form so we
         // don't produce invalid "INSERT INTO t () VALUES ()".
         if (first)
-            sql = "INSERT INTO " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " () VALUES ()";
+            sql = "INSERT INTO " + targetTable + " () VALUES ()";
         else
             sql += ") VALUES (" + valsSql + ")";
         return executeInternal(sql);
@@ -579,7 +598,7 @@ namespace DBModels
         const std::wstring& table, const std::wstring& schema,
         const TableRow& setValues, const TableRow& whereValues)
     {
-        std::string sql = "UPDATE " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " SET ";
+        std::string sql = "UPDATE " + qualifyTable(schema, table) + " SET ";
         bool first = true;
         for (auto& [col, val] : setValues)
         {
@@ -605,7 +624,7 @@ namespace DBModels
         const std::wstring& table, const std::wstring& schema,
         const TableRow& whereValues)
     {
-        std::string sql = "DELETE FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(table) + " WHERE ";
+        std::string sql = "DELETE FROM " + qualifyTable(schema, table) + " WHERE ";
         bool first = true;
         for (auto& [col, val] : whereValues)
         {
