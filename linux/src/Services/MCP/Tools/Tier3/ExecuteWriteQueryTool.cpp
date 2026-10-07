@@ -37,18 +37,23 @@ public:
             {"properties", {
                 {"connection_id", {{"type", "string"}, {"description", "Connection identifier"}}},
                 {"sql",           {{"type", "string"}, {"description", "A single SQL statement"}}},
+                {"query",         {{"type", "string"}, {"description", "A single SQL statement (alias for 'sql')"}}},
                 {"params",        {{"type", "array"},  {"description", "Parameters for placeholders"}}},
             }},
-            {"required", nlohmann::json::array({"connection_id", "sql"})},
+            {"required", nlohmann::json::array({"connection_id"})},
         };
     }
 
     MCPToolResult execute(const nlohmann::json& params, const MCPToolContext& ctx) override {
         const std::string connectionId = MCPTool::extractConnectionId(params);
-        if (!params.contains("sql") || !params["sql"].is_string()) {
+        std::string sql;
+        if (params.contains("sql") && params["sql"].is_string()) {
+            sql = params["sql"].get<std::string>();
+        } else if (params.contains("query") && params["query"].is_string()) {
+            sql = params["query"].get<std::string>();
+        } else {
             throw MCPToolError::invalidParameters("sql is required");
         }
-        const std::string sql = params["sql"].get<std::string>();
 
         const std::string codeOnly = stripCommentsAndStrings(sql);
         std::string upper = toUpperAscii(trimSpaces(codeOnly));

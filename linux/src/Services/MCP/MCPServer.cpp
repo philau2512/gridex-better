@@ -186,6 +186,7 @@ JSONRPCResponse MCPServer::handleToolCall(const JSONRPCRequest& req) {
         std::optional<std::string> sqlOpt;
         std::optional<int> paramsCountOpt;
         if (args.contains("sql") && args["sql"].is_string()) sqlOpt = args["sql"].get<std::string>();
+        else if (args.contains("query") && args["query"].is_string()) sqlOpt = args["query"].get<std::string>();
         if (args.contains("params") && args["params"].is_array()) paramsCountOpt = static_cast<int>(args["params"].size());
         e.input            = MCPAuditInput::fromSql(sqlOpt, paramsCountOpt);
         e.result            = {status, std::nullopt, std::nullopt, durationMs, std::nullopt};

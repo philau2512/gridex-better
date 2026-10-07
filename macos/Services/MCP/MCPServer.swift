@@ -237,7 +237,7 @@ actor MCPServer: StdioTransportDelegate {
                 connectionType: connectionType,
                 client: client,
                 input: MCPAuditInput(
-                    sql: toolParams["sql"]?.stringValue,
+                    sql: toolParams["sql"]?.stringValue ?? toolParams["query"]?.stringValue,
                     paramsCount: toolParams["params"]?.arrayValue?.count
                 ),
                 result: MCPAuditResult(
@@ -283,7 +283,7 @@ actor MCPServer: StdioTransportDelegate {
                 connectionType: connectionType,
                 client: client,
                 input: MCPAuditInput(
-                    sql: toolParams["sql"]?.stringValue,
+                    sql: toolParams["sql"]?.stringValue ?? toolParams["query"]?.stringValue,
                     paramsCount: toolParams["params"]?.arrayValue?.count
                 ),
                 result: MCPAuditResult(status: .error, durationMs: durationMs),

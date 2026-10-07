@@ -23,9 +23,13 @@ namespace DBModels
     {
         const auto connId = MCPTool::extractConnectionId(params);
 
-        if (!params.contains("sql") || !params["sql"].is_string())
+        std::string sqlUtf8;
+        if (params.contains("sql") && params["sql"].is_string())
+            sqlUtf8 = params["sql"].get<std::string>();
+        else if (params.contains("query") && params["query"].is_string())
+            sqlUtf8 = params["query"].get<std::string>();
+        else
             throw MCPToolError::invalidParameters("sql is required");
-        const std::string sqlUtf8 = params["sql"].get<std::string>();
 
         int rowLimit = 1000;
         if (params.contains("row_limit") && params["row_limit"].is_number_integer())
@@ -47,24 +51,25 @@ namespace DBModels
 
         auto [adapter, config] = ctx.getAdapter(connId);
 
-        // Append LIMIT if absent and target is SQL. Keep the raw
-        // sql untouched otherwise (Redis/Mongo adapters carry their
-        // own shape).
+        // Append LIMIT if absent and target is a SELECT/WITH SQL statement.
+        // Keep the raw sql untouched otherwise (SHOW, DESCRIBE, EXPLAIN, Redis/Mongo
+        // adapters carry their own shape).
         std::wstring sqlW = MCPToolHelpers::fromUtf8(sqlUtf8);
         if (acceptsLimitSuffix(config.databaseType))
         {
-            std::wstring upper = sqlW;
+            std::wstring trimmed = sqlW;
+            size_t startPos = trimmed.find_first_not_of(L" \t\r\n");
+            if (startPos != std::wstring::npos)
+                trimmed = trimmed.substr(startPos);
+
+            std::wstring upper = trimmed;
             std::transform(upper.begin(), upper.end(), upper.begin(), ::towupper);
-            // `upper.find(L"LIMIT")` also catches the substring inside
-            // a column name or comment, but since the caller sees a
-            // working query either way this false-positive only costs
-            // them a missing extra LIMIT clause — safer than double
-            // LIMIT. String sanitizer already ran upstream.
-            if (upper.find(L"LIMIT") == std::wstring::npos)
+
+            bool isSelectOrWith = (upper.rfind(L"SELECT", 0) == 0 || upper.rfind(L"WITH", 0) == 0);
+            if (isSelectOrWith && upper.find(L"LIMIT") == std::wstring::npos)
             {
-                std::wstring trimmed = sqlW;
                 while (!trimmed.empty() && (trimmed.back() == L' ' ||
-                        trimmed.back() == L';' || trimmed.back() == L'\n'))
+                        trimmed.back() == L';' || trimmed.back() == L'\n' || trimmed.back() == L'\r' || trimmed.back() == L'\t'))
                     trimmed.pop_back();
                 sqlW = trimmed + L" LIMIT " + std::to_wstring(rowLimit);
             }

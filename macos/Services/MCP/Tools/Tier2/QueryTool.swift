@@ -21,6 +21,10 @@ struct QueryTool: MCPTool {
                 "type": "string",
                 "description": "SQL query. Use parameterized placeholders."
             ],
+            "query": [
+                "type": "string",
+                "description": "SQL query to execute (alias for 'sql')"
+            ],
             "params": [
                 "type": "array",
                 "description": "Parameters for placeholders"
@@ -32,13 +36,13 @@ struct QueryTool: MCPTool {
                 "maximum": 10000
             ]
         ],
-        "required": ["connection_id", "sql"]
+        "required": ["connection_id"]
     ]
 
     func execute(params: JSONValue, context: MCPToolContext) async throws -> MCPToolResult {
         let connectionId = try extractConnectionId(from: params)
 
-        guard let sql = params["sql"]?.stringValue else {
+        guard let sql = params["sql"]?.stringValue ?? params["query"]?.stringValue else {
             throw MCPToolError.invalidParameters("sql is required")
         }
 
@@ -61,11 +65,13 @@ struct QueryTool: MCPTool {
 
         let (adapter, config) = try await context.getAdapter(for: connectionId)
 
-        // Apply row limit if not already present
+        // Apply row limit if not already present (only for SELECT / WITH queries)
         var limitedSQL = sql
-        let upperSQL = sql.uppercased()
-        if !upperSQL.contains("LIMIT") && config.databaseType.isSQL {
-            limitedSQL = "\(sql.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: ";"))) LIMIT \(rowLimit)"
+        let trimmedSQL = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        let upperSQL = trimmedSQL.uppercased()
+        let isSelectOrWith = upperSQL.hasPrefix("SELECT") || upperSQL.hasPrefix("WITH")
+        if isSelectOrWith && !upperSQL.contains("LIMIT") && config.databaseType.isSQL {
+            limitedSQL = "\(trimmedSQL.trimmingCharacters(in: CharacterSet(charactersIn: "; \t\r\n"))) LIMIT \(rowLimit)"
         }
 
         // Extract parameters

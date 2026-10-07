@@ -20,15 +20,19 @@ struct ExplainQueryTool: MCPTool {
             "sql": [
                 "type": "string",
                 "description": "SQL query to explain"
+            ],
+            "query": [
+                "type": "string",
+                "description": "SQL query to explain (alias for 'sql')"
             ]
         ],
-        "required": ["connection_id", "sql"]
+        "required": ["connection_id"]
     ]
 
     func execute(params: JSONValue, context: MCPToolContext) async throws -> MCPToolResult {
         let connectionId = try extractConnectionId(from: params)
 
-        guard let sql = params["sql"]?.stringValue else {
+        guard let sql = params["sql"]?.stringValue ?? params["query"]?.stringValue else {
             throw MCPToolError.invalidParameters("sql is required")
         }
 

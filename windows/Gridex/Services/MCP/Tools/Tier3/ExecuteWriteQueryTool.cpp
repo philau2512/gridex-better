@@ -36,9 +36,13 @@ namespace DBModels
     {
         const auto connId = MCPTool::extractConnectionId(params);
 
-        if (!params.contains("sql") || !params["sql"].is_string())
+        std::string sqlUtf8;
+        if (params.contains("sql") && params["sql"].is_string())
+            sqlUtf8 = params["sql"].get<std::string>();
+        else if (params.contains("query") && params["query"].is_string())
+            sqlUtf8 = params["query"].get<std::string>();
+        else
             throw MCPToolError::invalidParameters("sql is required");
-        const auto sqlUtf8 = params["sql"].get<std::string>();
 
         // Sanitize + multi-statement guard. Run syntactic checks
         // against a comment/literal-stripped copy so payloads

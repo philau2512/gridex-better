@@ -277,12 +277,18 @@ namespace DBModels
         audit.connectionId = connIdStr;
         audit.connectionType = connTypeStr;
 
+        std::string sqlInput;
         if (args.contains("sql") && args["sql"].is_string())
+            sqlInput = args["sql"].get<std::string>();
+        else if (args.contains("query") && args["query"].is_string())
+            sqlInput = args["query"].get<std::string>();
+
+        if (!sqlInput.empty())
         {
             std::optional<int> pc;
             if (args.contains("params") && args["params"].is_array())
                 pc = static_cast<int>(args["params"].size());
-            audit.input = MCPAuditInput::fromSQL(args["sql"].get<std::string>(), pc);
+            audit.input = MCPAuditInput::fromSQL(sqlInput, pc);
         }
 
         try

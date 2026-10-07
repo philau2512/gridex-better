@@ -18,17 +18,22 @@ public:
             {"properties", {
                 {"connection_id", {{"type", "string"}, {"description", "Connection identifier"}}},
                 {"sql",           {{"type", "string"}, {"description", "SQL query to explain"}}},
+                {"query",         {{"type", "string"}, {"description", "SQL query to explain (alias for 'sql')"}}},
             }},
-            {"required", nlohmann::json::array({"connection_id", "sql"})},
+            {"required", nlohmann::json::array({"connection_id"})},
         };
     }
 
     MCPToolResult execute(const nlohmann::json& params, const MCPToolContext& ctx) override {
         const std::string connectionId = MCPTool::extractConnectionId(params);
-        if (!params.contains("sql") || !params["sql"].is_string()) {
+        std::string sql;
+        if (params.contains("sql") && params["sql"].is_string()) {
+            sql = params["sql"].get<std::string>();
+        } else if (params.contains("query") && params["query"].is_string()) {
+            sql = params["query"].get<std::string>();
+        } else {
             throw MCPToolError::invalidParameters("sql is required");
         }
-        const std::string sql = params["sql"].get<std::string>();
 
         auto perm = ctx.checkPermission(tier(), connectionId);
         if (!perm.isAllowed() && !perm.requiresUserApproval()) {
