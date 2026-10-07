@@ -108,3 +108,5 @@ windows/Gridex/GridexVersion.generated.h
 dist
 .wangler
 .env.example
+
+.tgrep/

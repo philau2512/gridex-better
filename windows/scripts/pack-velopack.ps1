@@ -57,6 +57,14 @@ $ErrorActionPreference = "Stop"
 # vpk 0.0.1298 targets net9.0; allow running on any newer .NET runtime.
 $env:DOTNET_ROLL_FORWARD = "Major"
 
+# Ensure %USERPROFILE%\.dotnet\tools is on PATH for the current session
+$dotnetToolsDir = Join-Path $env:USERPROFILE ".dotnet\tools"
+if (Test-Path $dotnetToolsDir) {
+    if ($env:PATH -notlike "*$dotnetToolsDir*") {
+        $env:PATH = "$dotnetToolsDir;$env:PATH"
+    }
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 
 # vpk's --packDir / --outputDir resolve relative to CWD; pin CWD to repo root
